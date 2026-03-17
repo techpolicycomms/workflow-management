@@ -1,52 +1,97 @@
-# Executive Actions Prototype
+# Executive Workflow Prototype
 
-This is a local demo prototype for an executive action tracker built with React, TypeScript, Vite, and Supabase.
+SG memo and executive decision workflow prototype with adaptive approvals, auditability, and mobile-first UX.
 
-## What this prototype does
+Built with React + TypeScript + Vite, with dual storage modes:
+- **Supabase mode** (configured `.env`)
+- **Demo mode** (LocalStorage fallback with seeded data)
 
-- Shows an executive action dashboard with summary metrics.
-- Lets you add new actions (title, owner, due date, priority, notes).
-- Lets you update action status inline.
-- Filters actions by status.
-- Works in two modes:
-  - **Supabase mode** (when `.env` is configured)
-  - **Demo mode** with browser local storage fallback (when `.env` is not configured)
+## Feature Highlights
 
-## Local setup
+- Structured memo authoring:
+  - `Background` (required)
+  - `Analysis` (optional)
+  - `Recommendation` (required)
+  - Optional attachment name capture
+- Adaptive workflow engine:
+  - automatic `Light` / `Standard` / `Strict` scenario mode inference
+  - sequential approvals, send-back, reject, and completion flow
+  - role-based and person-based approver chains
+- Chain resilience:
+  - out-of-office and departed-user resolution paths
+  - runtime chain editing (reorder, role/person swap, add/remove step)
+  - audit event logging for chain changes and workflow actions
+- UX and accessibility:
+  - keyboard-first interactions and focus-visible support
+  - responsive layout with mobile quick action bar
+  - progressive disclosure via collapsible timelines
 
-1. Install dependencies:
+## Screenshots
+
+![Executive Workflow UI](./src/assets/hero.png)
+
+## Local Setup
+
+1) Install dependencies:
 
 ```bash
 npm install
 ```
 
-2. Create a `.env` file from the example:
+2) Create `.env` from the example:
 
 ```bash
 cp .env.example .env
 ```
 
-3. Add your Supabase values into `.env`:
+3) Add Supabase keys to `.env`:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 ```
 
-4. In Supabase SQL Editor, run `supabase-schema.sql`.
+4) In Supabase SQL Editor, run:
 
-5. Start the app:
+```sql
+-- file: supabase-schema.sql
+```
+
+5) Start development server:
 
 ```bash
 npm run dev
 ```
 
-Then open the local URL shown by Vite (typically [http://localhost:5173](http://localhost:5173)).
+Then open the Vite URL (typically [http://localhost:5173](http://localhost:5173)).
 
-## Supabase notes
+## Keyboard Shortcuts
 
-- SDK used: `@supabase/supabase-js`.
-- Client initialized with `createClient(url, anonKey)`.
-- Table queried: `public.executive_actions`.
-- Demo policies in `supabase-schema.sql` allow anon select/insert/update for prototype speed.
-  Tighten these before production.
+- `Ctrl/Cmd + K`: focus search
+- `Alt + N`: focus new memo title
+- On selected memo card:
+  - `A`: approve
+  - `B`: send back
+  - `R`: reject
+  - `T`: toggle timeline
+
+## Build
+
+```bash
+npm run build
+```
+
+## Data and Schema Notes
+
+- Supabase client: `@supabase/supabase-js`
+- Table: `public.executive_actions`
+- Extended memo fields include:
+  - `memo_background`
+  - `memo_analysis`
+  - `memo_recommendation`
+  - `attachment_name`
+- Workflow metadata includes:
+  - `mode`
+  - `workflow_steps`
+  - `current_step_index`
+  - `approval_history`
