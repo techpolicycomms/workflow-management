@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { createAction, getActions, getConnectionMode, updateAction } from './lib/actionsApi'
+import { createSnapshotWithAI, draftMemoWithAI } from './lib/aiApi'
+import { localeDictionaries, type LocaleDictionary } from './i18n'
+import { validateLocaleDictionary } from './i18n/validate'
 import {
   applyStepDecision,
   buildWorkflow,
@@ -14,6 +17,15 @@ import './App.css'
 
 const statuses: ActionStatus[] = ['Draft', 'In Review', 'Sent Back', 'Approved', 'Rejected', 'Completed']
 const priorities: ActionPriority[] = ['High', 'Medium', 'Low']
+type LangCode = 'ar' | 'zh' | 'en' | 'fr' | 'ru' | 'es'
+const officialLanguages = [
+  { code: 'ar' as LangCode, label: 'عربي', dir: 'rtl' as const },
+  { code: 'zh' as LangCode, label: '中文', dir: 'ltr' as const },
+  { code: 'en' as LangCode, label: 'English', dir: 'ltr' as const },
+  { code: 'fr' as LangCode, label: 'Français', dir: 'ltr' as const },
+  { code: 'ru' as LangCode, label: 'Русский', dir: 'ltr' as const },
+  { code: 'es' as LangCode, label: 'Español', dir: 'ltr' as const },
+]
 const actors = [
   'Rahul Jha',
   'Fatima Protocol',
@@ -23,6 +35,354 @@ const actors = [
   'Ari Finance',
   'Secretary-General Office',
 ]
+
+const uiText: Record<
+  LangCode,
+  Record<
+    | 'title'
+    | 'subtitle'
+    | 'exportAudit'
+    | 'actingAs'
+    | 'adminOverride'
+    | 'shortcuts'
+    | 'newMemo'
+    | 'memoRegister'
+    | 'createMemo'
+    | 'collapseForm'
+    | 'openForm'
+    | 'aiDraft'
+    | 'aiDrafting'
+    | 'search'
+    | 'reset'
+    | 'openOnly'
+    | 'statusAll'
+    | 'submit'
+    | 'approve'
+    | 'sendBack'
+    | 'reject'
+    | 'done'
+    | 'timeline'
+    | 'aiSnapshot'
+    | 'background'
+    | 'analysisOptional'
+    | 'recommendation'
+    | 'attachmentOptional'
+    | 'total'
+    | 'open'
+    | 'inReview'
+    | 'due7'
+    | 'completed'
+    | 'completion'
+    | 'blocked'
+    | 'overdueApprovals'
+    | 'pendingSubs',
+    string
+  >
+> = {
+  en: {
+    title: 'Executive Workflow',
+    subtitle: 'SG memo and executive decision flow with adaptive governance.',
+    exportAudit: 'Export audit',
+    actingAs: 'Acting as',
+    adminOverride: 'Admin override',
+    shortcuts: 'Shortcuts: Ctrl/Cmd+K search, Alt+N new memo title, T timeline.',
+    newMemo: 'New Memo',
+    memoRegister: 'Memo Register',
+    createMemo: 'Create memo',
+    collapseForm: 'Collapse form',
+    openForm: 'Open form',
+    aiDraft: 'AI draft sections',
+    aiDrafting: 'AI drafting...',
+    search: 'Search',
+    reset: 'Reset',
+    openOnly: 'Open only',
+    statusAll: 'All',
+    submit: 'Submit',
+    approve: 'Approve',
+    sendBack: 'Send back',
+    reject: 'Reject',
+    done: 'Done',
+    timeline: 'Timeline',
+    aiSnapshot: 'AI snapshot',
+    background: 'Background',
+    analysisOptional: 'Analysis (optional)',
+    recommendation: 'Recommendation',
+    attachmentOptional: 'Attachment (optional)',
+    total: 'Total',
+    open: 'Open',
+    inReview: 'In review',
+    due7: 'Due in 7d',
+    completed: 'Completed',
+    completion: 'Completion',
+    blocked: 'Blocked',
+    overdueApprovals: 'Overdue approvals',
+    pendingSubs: 'Pending substitutions',
+  },
+  ar: {
+    title: 'سير العمل التنفيذي',
+    subtitle: 'مذكرات الأمين العام وسير قرارات التنفيذ مع حوكمة تكيفية.',
+    exportAudit: 'تصدير التدقيق',
+    actingAs: 'الدور الحالي',
+    adminOverride: 'تجاوز المسؤول',
+    shortcuts: 'الاختصارات: Ctrl/Cmd+K للبحث، Alt+N لعنوان مذكرة جديدة، T للمخطط الزمني.',
+    newMemo: 'مذكرة جديدة',
+    memoRegister: 'سجل المذكرات',
+    createMemo: 'إنشاء مذكرة',
+    collapseForm: 'طي النموذج',
+    openForm: 'فتح النموذج',
+    aiDraft: 'صياغة بالذكاء الاصطناعي',
+    aiDrafting: 'جارٍ الصياغة...',
+    search: 'بحث',
+    reset: 'إعادة تعيين',
+    openOnly: 'المفتوحة فقط',
+    statusAll: 'الكل',
+    submit: 'إرسال',
+    approve: 'موافقة',
+    sendBack: 'إعادة',
+    reject: 'رفض',
+    done: 'تم',
+    timeline: 'الخط الزمني',
+    aiSnapshot: 'ملخص ذكاء اصطناعي',
+    background: 'الخلفية',
+    analysisOptional: 'التحليل (اختياري)',
+    recommendation: 'التوصية',
+    attachmentOptional: 'مرفق (اختياري)',
+    total: 'الإجمالي',
+    open: 'مفتوح',
+    inReview: 'قيد المراجعة',
+    due7: 'مستحق خلال 7 أيام',
+    completed: 'مكتمل',
+    completion: 'نسبة الإنجاز',
+    blocked: 'معلّق',
+    overdueApprovals: 'موافقات متأخرة',
+    pendingSubs: 'استبدالات معلقة',
+  },
+  zh: {
+    title: '执行工作流',
+    subtitle: '秘书长备忘录与执行决策流程，支持自适应治理。',
+    exportAudit: '导出审计',
+    actingAs: '当前身份',
+    adminOverride: '管理员覆盖',
+    shortcuts: '快捷键：Ctrl/Cmd+K 搜索，Alt+N 新备忘录标题，T 时间线。',
+    newMemo: '新备忘录',
+    memoRegister: '备忘录列表',
+    createMemo: '创建备忘录',
+    collapseForm: '收起表单',
+    openForm: '打开表单',
+    aiDraft: 'AI 起草',
+    aiDrafting: 'AI 起草中...',
+    search: '搜索',
+    reset: '重置',
+    openOnly: '仅显示未关闭',
+    statusAll: '全部',
+    submit: '提交',
+    approve: '批准',
+    sendBack: '退回',
+    reject: '拒绝',
+    done: '完成',
+    timeline: '时间线',
+    aiSnapshot: 'AI 摘要',
+    background: '背景',
+    analysisOptional: '分析（可选）',
+    recommendation: '建议',
+    attachmentOptional: '附件（可选）',
+    total: '总计',
+    open: '进行中',
+    inReview: '审核中',
+    due7: '7天内到期',
+    completed: '已完成',
+    completion: '完成率',
+    blocked: '受阻',
+    overdueApprovals: '逾期审批',
+    pendingSubs: '待处理替代',
+  },
+  fr: {
+    title: 'Flux Exécutif',
+    subtitle: 'Flux de mémos SG et de décisions exécutives avec gouvernance adaptative.',
+    exportAudit: 'Exporter l’audit',
+    actingAs: 'Rôle actif',
+    adminOverride: 'Override admin',
+    shortcuts: 'Raccourcis : Ctrl/Cmd+K recherche, Alt+N nouveau titre, T chronologie.',
+    newMemo: 'Nouveau mémo',
+    memoRegister: 'Registre des mémos',
+    createMemo: 'Créer le mémo',
+    collapseForm: 'Réduire le formulaire',
+    openForm: 'Ouvrir le formulaire',
+    aiDraft: 'Brouillon IA',
+    aiDrafting: 'Rédaction IA...',
+    search: 'Recherche',
+    reset: 'Réinitialiser',
+    openOnly: 'Ouverts seulement',
+    statusAll: 'Tous',
+    submit: 'Soumettre',
+    approve: 'Approuver',
+    sendBack: 'Renvoyer',
+    reject: 'Rejeter',
+    done: 'Terminé',
+    timeline: 'Chronologie',
+    aiSnapshot: 'Synthèse IA',
+    background: 'Contexte',
+    analysisOptional: 'Analyse (optionnelle)',
+    recommendation: 'Recommandation',
+    attachmentOptional: 'Pièce jointe (optionnelle)',
+    total: 'Total',
+    open: 'Ouvert',
+    inReview: 'En revue',
+    due7: 'Échéance 7j',
+    completed: 'Terminé',
+    completion: 'Taux',
+    blocked: 'Bloqué',
+    overdueApprovals: 'Approbations en retard',
+    pendingSubs: 'Substitutions en attente',
+  },
+  ru: {
+    title: 'Исполнительный поток',
+    subtitle: 'Поток служебных записок SG и решений с адаптивным управлением.',
+    exportAudit: 'Экспорт аудита',
+    actingAs: 'Текущая роль',
+    adminOverride: 'Админ-override',
+    shortcuts: 'Горячие клавиши: Ctrl/Cmd+K поиск, Alt+N заголовок, T таймлайн.',
+    newMemo: 'Новая записка',
+    memoRegister: 'Реестр записок',
+    createMemo: 'Создать записку',
+    collapseForm: 'Свернуть форму',
+    openForm: 'Открыть форму',
+    aiDraft: 'Черновик ИИ',
+    aiDrafting: 'ИИ пишет...',
+    search: 'Поиск',
+    reset: 'Сброс',
+    openOnly: 'Только открытые',
+    statusAll: 'Все',
+    submit: 'Отправить',
+    approve: 'Одобрить',
+    sendBack: 'Вернуть',
+    reject: 'Отклонить',
+    done: 'Готово',
+    timeline: 'Таймлайн',
+    aiSnapshot: 'Сводка ИИ',
+    background: 'Фон',
+    analysisOptional: 'Анализ (опц.)',
+    recommendation: 'Рекомендация',
+    attachmentOptional: 'Вложение (опц.)',
+    total: 'Всего',
+    open: 'Открыто',
+    inReview: 'На рассмотрении',
+    due7: 'Срок 7д',
+    completed: 'Завершено',
+    completion: 'Процент',
+    blocked: 'Блокировано',
+    overdueApprovals: 'Просроченные согласования',
+    pendingSubs: 'Ожидающие замены',
+  },
+  es: {
+    title: 'Flujo Ejecutivo',
+    subtitle: 'Flujo de memorandos SG y decisiones ejecutivas con gobernanza adaptativa.',
+    exportAudit: 'Exportar auditoría',
+    actingAs: 'Actuando como',
+    adminOverride: 'Override admin',
+    shortcuts: 'Atajos: Ctrl/Cmd+K buscar, Alt+N nuevo título, T línea de tiempo.',
+    newMemo: 'Nuevo memo',
+    memoRegister: 'Registro de memos',
+    createMemo: 'Crear memo',
+    collapseForm: 'Colapsar formulario',
+    openForm: 'Abrir formulario',
+    aiDraft: 'Borrador IA',
+    aiDrafting: 'IA redactando...',
+    search: 'Buscar',
+    reset: 'Restablecer',
+    openOnly: 'Solo abiertos',
+    statusAll: 'Todos',
+    submit: 'Enviar',
+    approve: 'Aprobar',
+    sendBack: 'Devolver',
+    reject: 'Rechazar',
+    done: 'Hecho',
+    timeline: 'Línea de tiempo',
+    aiSnapshot: 'Resumen IA',
+    background: 'Antecedentes',
+    analysisOptional: 'Análisis (opcional)',
+    recommendation: 'Recomendación',
+    attachmentOptional: 'Adjunto (opcional)',
+    total: 'Total',
+    open: 'Abierto',
+    inReview: 'En revisión',
+    due7: 'Vence en 7d',
+    completed: 'Completado',
+    completion: 'Cumplimiento',
+    blocked: 'Bloqueado',
+    overdueApprovals: 'Aprobaciones vencidas',
+    pendingSubs: 'Sustituciones pendientes',
+  },
+}
+
+const statusLabels: Record<LangCode, Record<ActionStatus, string>> = {
+  en: {
+    Draft: 'Draft',
+    'In Review': 'In Review',
+    'Sent Back': 'Sent Back',
+    Approved: 'Approved',
+    Rejected: 'Rejected',
+    Completed: 'Completed',
+    'Not Started': 'Not Started',
+    'In Progress': 'In Progress',
+    'At Risk': 'At Risk',
+  },
+  ar: {
+    Draft: 'مسودة',
+    'In Review': 'قيد المراجعة',
+    'Sent Back': 'معاد',
+    Approved: 'موافق عليه',
+    Rejected: 'مرفوض',
+    Completed: 'مكتمل',
+    'Not Started': 'لم يبدأ',
+    'In Progress': 'قيد التنفيذ',
+    'At Risk': 'معرّض للخطر',
+  },
+  zh: {
+    Draft: '草稿',
+    'In Review': '审核中',
+    'Sent Back': '已退回',
+    Approved: '已批准',
+    Rejected: '已拒绝',
+    Completed: '已完成',
+    'Not Started': '未开始',
+    'In Progress': '进行中',
+    'At Risk': '有风险',
+  },
+  fr: {
+    Draft: 'Brouillon',
+    'In Review': 'En revue',
+    'Sent Back': 'Renvoyé',
+    Approved: 'Approuvé',
+    Rejected: 'Rejeté',
+    Completed: 'Terminé',
+    'Not Started': 'Non démarré',
+    'In Progress': 'En cours',
+    'At Risk': 'À risque',
+  },
+  ru: {
+    Draft: 'Черновик',
+    'In Review': 'На рассмотрении',
+    'Sent Back': 'Возвращено',
+    Approved: 'Одобрено',
+    Rejected: 'Отклонено',
+    Completed: 'Завершено',
+    'Not Started': 'Не начато',
+    'In Progress': 'В работе',
+    'At Risk': 'Риск',
+  },
+  es: {
+    Draft: 'Borrador',
+    'In Review': 'En revisión',
+    'Sent Back': 'Devuelto',
+    Approved: 'Aprobado',
+    Rejected: 'Rechazado',
+    Completed: 'Completado',
+    'Not Started': 'No iniciado',
+    'In Progress': 'En progreso',
+    'At Risk': 'En riesgo',
+  },
+}
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
@@ -195,7 +555,17 @@ function App() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const [isMemoFormCollapsed, setIsMemoFormCollapsed] = useState(false)
   const [chainDrafts, setChainDrafts] = useState<Record<string, WorkflowStep[]>>({})
+  const [isAIDrafting, setIsAIDrafting] = useState(false)
+  const [aiSnapshotLoadingById, setAiSnapshotLoadingById] = useState<Record<string, boolean>>({})
+  const [activeLanguage, setActiveLanguage] = useState(officialLanguages[2].code)
+  const [localeOverrides, setLocaleOverrides] =
+    useState<Record<LangCode, LocaleDictionary>>(localeDictionaries as Record<LangCode, LocaleDictionary>)
+  const translationImportRef = useRef<HTMLInputElement | null>(null)
   const connectionMode = getConnectionMode()
+  const activeLocale = localeOverrides[activeLanguage as LangCode]
+  const t = activeLocale?.ui ?? uiText[activeLanguage as LangCode]
+  const localizedStatusLabels =
+    activeLocale?.statusLabels ?? statusLabels[activeLanguage as LangCode]
 
   useEffect(() => {
     const load = async () => {
@@ -351,6 +721,53 @@ function App() {
     }
   }
 
+  const onAIDraftMemo = async () => {
+    if (!form.title) {
+      setError('Enter a memo title before using AI draft.')
+      return
+    }
+
+    setIsAIDrafting(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const drafted = await draftMemoWithAI({
+        title: form.title,
+        background: form.background,
+        analysis: form.analysis,
+        recommendation: form.recommendation,
+        priority: form.priority,
+      })
+
+      setForm((current) => ({
+        ...current,
+        background: drafted.background || current.background,
+        analysis: drafted.analysis || current.analysis,
+        recommendation: drafted.recommendation || current.recommendation,
+        priority: drafted.suggested_priority || current.priority,
+        approverCount: Math.max(1, Math.min(4, drafted.suggested_approver_count || current.approverCount)),
+        includeFinalAuthority:
+          typeof drafted.include_final_authority === 'boolean'
+            ? drafted.include_final_authority
+            : current.includeFinalAuthority,
+        externalImplication:
+          typeof drafted.external_implication === 'boolean'
+            ? drafted.external_implication
+            : current.externalImplication,
+        institutionalImplication:
+          typeof drafted.institutional_implication === 'boolean'
+            ? drafted.institutional_implication
+            : current.institutionalImplication,
+        attachment_name: drafted.attachment_hint || current.attachment_name,
+      }))
+      setSuccessMessage('AI draft generated locally via your machine.')
+    } catch (draftError) {
+      setError(draftError instanceof Error ? draftError.message : 'Failed to generate AI draft.')
+    } finally {
+      setIsAIDrafting(false)
+    }
+  }
+
   const onDecision = async (action: ExecutiveAction, decision: WorkflowStepStatus) => {
     if (!canActOnCurrentStep(action, actingAs, isAdminMode)) {
       setError('You are not the active approver.')
@@ -491,6 +908,30 @@ function App() {
     })
   }
 
+  const onAISnapshot = async (action: ExecutiveAction) => {
+    setAiSnapshotLoadingById((current) => ({ ...current, [action.id]: true }))
+    setError(null)
+    try {
+      const snapshot = await createSnapshotWithAI({
+        title: action.title,
+        background: action.memo_background ?? '',
+        analysis: action.memo_analysis ?? '',
+        recommendation: action.memo_recommendation ?? action.notes,
+        status: action.status,
+        mode: action.mode ?? 'Standard',
+      })
+      const combined = [snapshot.snapshot, `Decision: ${snapshot.decision_prompt}`, ...snapshot.top_risks]
+        .filter(Boolean)
+        .join(' | ')
+      setWorkflowComment((current) => ({ ...current, [action.id]: combined }))
+      setSuccessMessage('AI approver snapshot generated.')
+    } catch (snapshotError) {
+      setError(snapshotError instanceof Error ? snapshotError.message : 'Failed to create AI snapshot.')
+    } finally {
+      setAiSnapshotLoadingById((current) => ({ ...current, [action.id]: false }))
+    }
+  }
+
   const exportAuditSummary = () => {
     const lines: string[] = []
     lines.push(`# Executive Workflow Audit Summary`)
@@ -525,6 +966,102 @@ function App() {
     document.body.removeChild(link)
     window.URL.revokeObjectURL(url)
     setSuccessMessage('Audit summary exported.')
+  }
+
+  const exportTranslations = () => {
+    const language = activeLanguage as LangCode
+    const payload = {
+      language,
+      dictionary: localeOverrides[language],
+    }
+    const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = window.URL.createObjectURL(file)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `translations-${language}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    setSuccessMessage(`Exported ${language} translation dictionary.`)
+  }
+
+  const importTranslations = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+    try {
+      const raw = await file.text()
+      const parsed = JSON.parse(raw) as {
+        language: LangCode
+        dictionary: LocaleDictionary
+      }
+      if (!parsed.language || !parsed.dictionary?.ui || !parsed.dictionary?.statusLabels) {
+        throw new Error('Invalid translation file structure.')
+      }
+      const validation = validateLocaleDictionary(parsed.dictionary)
+      if (!validation.isValid) {
+        const parts = [
+          validation.missingUIKeys.length
+            ? `Missing UI: ${validation.missingUIKeys.join(', ')}`
+            : '',
+          validation.extraUIKeys.length ? `Extra UI: ${validation.extraUIKeys.join(', ')}` : '',
+          validation.missingStatusKeys.length
+            ? `Missing status labels: ${validation.missingStatusKeys.join(', ')}`
+            : '',
+          validation.extraStatusKeys.length
+            ? `Extra status labels: ${validation.extraStatusKeys.join(', ')}`
+            : '',
+        ].filter(Boolean)
+        throw new Error(`Translation schema mismatch. ${parts.join(' | ')}`)
+      }
+      setLocaleOverrides((current) => ({
+        ...current,
+        [parsed.language]: parsed.dictionary,
+      }))
+      setSuccessMessage(`Imported dictionary for ${parsed.language}.`)
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'Failed to import translation.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  const exportI18nValidationReport = () => {
+    const lines: string[] = []
+    lines.push('I18N VALIDATION REPORT')
+    lines.push(`Generated: ${new Date().toISOString()}`)
+    lines.push('')
+    ;(Object.keys(localeOverrides) as LangCode[]).forEach((language) => {
+      const validation = validateLocaleDictionary(localeOverrides[language])
+      lines.push(`Language: ${language}`)
+      lines.push(`Valid: ${validation.isValid ? 'YES' : 'NO'}`)
+      if (validation.missingUIKeys.length) {
+        lines.push(`  Missing UI keys: ${validation.missingUIKeys.join(', ')}`)
+      }
+      if (validation.extraUIKeys.length) {
+        lines.push(`  Extra UI keys: ${validation.extraUIKeys.join(', ')}`)
+      }
+      if (validation.missingStatusKeys.length) {
+        lines.push(`  Missing status keys: ${validation.missingStatusKeys.join(', ')}`)
+      }
+      if (validation.extraStatusKeys.length) {
+        lines.push(`  Extra status keys: ${validation.extraStatusKeys.join(', ')}`)
+      }
+      lines.push('')
+    })
+
+    const file = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = window.URL.createObjectURL(file)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `i18n-validation-report-${new Date().toISOString().slice(0, 10)}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+    setSuccessMessage('Exported i18n validation report.')
   }
 
   useEffect(() => {
@@ -569,6 +1106,12 @@ function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [actions, selectedCardId])
 
+  useEffect(() => {
+    const selected = officialLanguages.find((lang) => lang.code === activeLanguage) ?? officialLanguages[2]
+    document.documentElement.lang = selected.code
+    document.documentElement.dir = selected.dir
+  }, [activeLanguage])
+
   return (
     <main className="app-shell">
       <a href="#memo-register" className="skip-link">
@@ -576,22 +1119,54 @@ function App() {
       </a>
       <header className="top">
         <div className="title-block">
-          <h1>Executive Workflow</h1>
-          <p className="subtitle">SG memo and executive decision flow with adaptive governance.</p>
+          <h1>{t.title}</h1>
+          <p className="subtitle">{t.subtitle}</p>
+          <p className="itu-brand-text">International Telecommunication Union (ITU)</p>
         </div>
         <div className="top-actions">
           <div className={`badge ${connectionMode}`}>{connectionMode === 'supabase' ? 'Live data' : 'Demo data'}</div>
           <button type="button" className="icon-btn" onClick={exportAuditSummary}>
             <Icon name="export" />
-            Export audit
+            {t.exportAudit}
           </button>
         </div>
       </header>
 
+      <nav className="language-bar" aria-label="Official UN languages">
+        {officialLanguages.map((language) => (
+          <button
+            key={language.code}
+            type="button"
+            className={`lang-chip ${activeLanguage === language.code ? 'active' : ''}`}
+            onClick={() => setActiveLanguage(language.code)}
+            aria-pressed={activeLanguage === language.code}
+          >
+            {language.label}
+          </button>
+        ))}
+        <button type="button" className="lang-chip" onClick={exportTranslations}>
+          Export i18n
+        </button>
+        <button type="button" className="lang-chip" onClick={() => translationImportRef.current?.click()}>
+          Import i18n
+        </button>
+        <button type="button" className="lang-chip" onClick={exportI18nValidationReport}>
+          i18n report
+        </button>
+        <input
+          ref={translationImportRef}
+          type="file"
+          accept="application/json"
+          onChange={importTranslations}
+          className="translation-import"
+          aria-label="Import translation file"
+        />
+      </nav>
+
       <section className="context-bar">
         <label className="field-inline">
           <Icon name="user" />
-          <span>Acting as</span>
+          <span>{t.actingAs}</span>
           <select value={actingAs} onChange={(event) => setActingAs(event.target.value)}>
             {actors.map((actor) => (
               <option key={actor} value={actor}>
@@ -602,26 +1177,26 @@ function App() {
         </label>
         <label className="toggle">
           <input type="checkbox" checked={isAdminMode} onChange={(event) => setIsAdminMode(event.target.checked)} />
-          Admin override
+          {t.adminOverride}
         </label>
         <p className="shortcut-hint" aria-label="Keyboard shortcuts">
-          Shortcuts: `Ctrl/Cmd+K` search, `Alt+N` new memo title, `T` timeline.
+          {t.shortcuts}
         </p>
       </section>
 
       <section className="metrics">
-        <article><span className="metric-icon"><Icon name="kpi" /></span><h2>{metrics.total}</h2><p>Total</p></article>
-        <article><span className="metric-icon"><Icon name="step" /></span><h2>{metrics.open}</h2><p>Open</p></article>
-        <article><span className="metric-icon"><Icon name="audit" /></span><h2>{metrics.inReview}</h2><p>In review</p></article>
-        <article><span className="metric-icon"><Icon name="calendar" /></span><h2>{metrics.dueSoon}</h2><p>Due in 7d</p></article>
-        <article><span className="metric-icon"><Icon name="kpi" /></span><h2>{metrics.completed}</h2><p>Completed</p></article>
-        <article><span className="metric-icon"><Icon name="kpi" /></span><h2>{metrics.completionRate}%</h2><p>Completion</p></article>
+        <article><span className="metric-icon"><Icon name="kpi" /></span><h2>{metrics.total}</h2><p>{t.total}</p></article>
+        <article><span className="metric-icon"><Icon name="step" /></span><h2>{metrics.open}</h2><p>{t.open}</p></article>
+        <article><span className="metric-icon"><Icon name="audit" /></span><h2>{metrics.inReview}</h2><p>{t.inReview}</p></article>
+        <article><span className="metric-icon"><Icon name="calendar" /></span><h2>{metrics.dueSoon}</h2><p>{t.due7}</p></article>
+        <article><span className="metric-icon"><Icon name="kpi" /></span><h2>{metrics.completed}</h2><p>{t.completed}</p></article>
+        <article><span className="metric-icon"><Icon name="kpi" /></span><h2>{metrics.completionRate}%</h2><p>{t.completion}</p></article>
       </section>
 
       <section className="workspace">
         <aside className="side-column">
           <div className="panel">
-            <h3>New Memo</h3>
+            <h3>{t.newMemo}</h3>
             <button
               type="button"
               className="mobile-form-toggle ghost"
@@ -629,7 +1204,10 @@ function App() {
               aria-expanded={!isMemoFormCollapsed}
               aria-controls="new-memo-form"
             >
-              {isMemoFormCollapsed ? 'Open form' : 'Collapse form'}
+              {isMemoFormCollapsed ? t.openForm : t.collapseForm}
+            </button>
+            <button type="button" className="ghost ai-draft-btn" onClick={onAIDraftMemo} disabled={isAIDrafting}>
+              {isAIDrafting ? t.aiDrafting : t.aiDraft}
             </button>
             <form
               id="new-memo-form"
@@ -671,7 +1249,7 @@ function App() {
               <label className="toggle"><input type="checkbox" checked={form.externalImplication} onChange={(event) => setForm({ ...form, externalImplication: event.target.checked })} />External implication</label>
               <label className="toggle"><input type="checkbox" checked={form.institutionalImplication} onChange={(event) => setForm({ ...form, institutionalImplication: event.target.checked })} />Institutional implication</label>
 
-              <label htmlFor="memo-background" className="full">Background</label>
+              <label htmlFor="memo-background" className="full">{t.background}</label>
               <textarea
                 id="memo-background"
                 className="full"
@@ -682,7 +1260,7 @@ function App() {
                 aria-required="true"
               />
 
-              <label htmlFor="memo-analysis" className="full">Analysis (optional)</label>
+              <label htmlFor="memo-analysis" className="full">{t.analysisOptional}</label>
               <textarea
                 id="memo-analysis"
                 className="full"
@@ -692,7 +1270,7 @@ function App() {
                 rows={3}
               />
 
-              <label htmlFor="memo-recommendation" className="full">Recommendation</label>
+              <label htmlFor="memo-recommendation" className="full">{t.recommendation}</label>
               <textarea
                 id="memo-recommendation"
                 className="full"
@@ -703,7 +1281,7 @@ function App() {
                 aria-required="true"
               />
 
-              <label htmlFor="memo-attachment">Attachment (optional)</label>
+              <label htmlFor="memo-attachment">{t.attachmentOptional}</label>
               <input
                 id="memo-attachment"
                 type="file"
@@ -711,23 +1289,23 @@ function App() {
               />
               {form.attachment_name && <p className="file-chip">Attached: {form.attachment_name}</p>}
 
-              <button type="submit" disabled={isSaving} aria-keyshortcuts="Alt+Shift+S">{isSaving ? 'Creating...' : 'Create memo'}</button>
+              <button type="submit" disabled={isSaving} aria-keyshortcuts="Alt+Shift+S">{isSaving ? '...' : t.createMemo}</button>
             </form>
           </div>
 
           <div className="panel health-panel">
             <h3>Workflow Health</h3>
             <div className="health-grid">
-              <div><span className="health-value">{workflowHealth.blocked}</span><p>Blocked</p></div>
-              <div><span className="health-value">{workflowHealth.overdueApprovals}</span><p>Overdue approvals</p></div>
-              <div><span className="health-value">{workflowHealth.unresolvedSubstitutions}</span><p>Pending substitutions</p></div>
+              <div><span className="health-value">{workflowHealth.blocked}</span><p>{t.blocked}</p></div>
+              <div><span className="health-value">{workflowHealth.overdueApprovals}</span><p>{t.overdueApprovals}</p></div>
+              <div><span className="health-value">{workflowHealth.unresolvedSubstitutions}</span><p>{t.pendingSubs}</p></div>
             </div>
           </div>
         </aside>
 
         <div className="panel" id="memo-register">
           <div className="list-header">
-            <h3>Memo Register</h3>
+            <h3>{t.memoRegister}</h3>
             <div className="filters">
               <div className="search-wrap">
                 <Icon name="search" />
@@ -735,14 +1313,16 @@ function App() {
                   ref={searchRef}
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search"
+                  placeholder={t.search}
                   aria-label="Search memos"
                 />
               </div>
               <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as ActionStatus | 'All')} aria-label="Filter by status">
-                <option value="All">All</option>
+                <option value="All">{t.statusAll}</option>
                 {statuses.map((status) => (
-                  <option key={status} value={status}>{status}</option>
+                  <option key={status} value={status}>
+                    {localizedStatusLabels[status] ?? status}
+                  </option>
                 ))}
               </select>
               <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortBy)}>
@@ -751,7 +1331,7 @@ function App() {
                 <option value="priority">Risk</option>
                 <option value="recent">Recent</option>
               </select>
-              <label className="toggle"><input type="checkbox" checked={showOpenOnly} onChange={(event) => setShowOpenOnly(event.target.checked)} />Open only</label>
+              <label className="toggle"><input type="checkbox" checked={showOpenOnly} onChange={(event) => setShowOpenOnly(event.target.checked)} />{t.openOnly}</label>
               <button
                 type="button"
                 className="ghost"
@@ -763,7 +1343,7 @@ function App() {
                   setShowOpenOnly(false)
                 }}
               >
-                Reset
+                {t.reset}
               </button>
             </div>
           </div>
@@ -812,15 +1392,17 @@ function App() {
                   <div className="card-top">
                     <h4>{action.title}</h4>
                     <div className="badge-row">
-                      <span className={`pill status-${action.status.toLowerCase().replaceAll(' ', '-')}`}>{action.status}</span>
+                      <span className={`pill status-${action.status.toLowerCase().replaceAll(' ', '-')}`}>
+                        {localizedStatusLabels[action.status] ?? action.status}
+                      </span>
                       <span className={`pill mode-${mode.toLowerCase()}`}>{mode}</span>
                     </div>
                   </div>
 
                   <div className="memo-sections">
-                    <p className="card-body"><strong>Background:</strong> {action.memo_background || 'Not provided.'}</p>
-                    {action.memo_analysis && <p className="card-body"><strong>Analysis:</strong> {action.memo_analysis}</p>}
-                    <p className="card-body"><strong>Recommendation:</strong> {action.memo_recommendation || action.notes}</p>
+                    <p className="card-body"><strong>{t.background}:</strong> {action.memo_background || 'Not provided.'}</p>
+                    {action.memo_analysis && <p className="card-body"><strong>{t.analysisOptional}:</strong> {action.memo_analysis}</p>}
+                    <p className="card-body"><strong>{t.recommendation}:</strong> {action.memo_recommendation || action.notes}</p>
                   </div>
 
                   <div className="meta-grid">
@@ -844,19 +1426,27 @@ function App() {
                       onChange={(event) => setWorkflowComment((current) => ({ ...current, [action.id]: event.target.value }))}
                       placeholder="Comment (optional)"
                     />
-                    <button type="button" className="compact" disabled={updatingId === action.id || action.status !== 'Draft'} onClick={() => onSubmitForReview(action)}>Submit</button>
-                    <button type="button" className="compact" disabled={updatingId === action.id || !canAct || hasUnavailableCurrent} onClick={() => onDecision(action, 'Approved')}>Approve</button>
-                    <button type="button" className="compact warn" disabled={updatingId === action.id || !canAct || hasUnavailableCurrent} onClick={() => onDecision(action, 'Sent Back')}>Send back</button>
-                    <button type="button" className="compact danger" disabled={updatingId === action.id || !canAct || hasUnavailableCurrent} onClick={() => onDecision(action, 'Rejected')}>Reject</button>
+                    <button type="button" className="compact" disabled={updatingId === action.id || action.status !== 'Draft'} onClick={() => onSubmitForReview(action)}>{t.submit}</button>
+                    <button type="button" className="compact" disabled={updatingId === action.id || !canAct || hasUnavailableCurrent} onClick={() => onDecision(action, 'Approved')}>{t.approve}</button>
+                    <button type="button" className="compact warn" disabled={updatingId === action.id || !canAct || hasUnavailableCurrent} onClick={() => onDecision(action, 'Sent Back')}>{t.sendBack}</button>
+                    <button type="button" className="compact danger" disabled={updatingId === action.id || !canAct || hasUnavailableCurrent} onClick={() => onDecision(action, 'Rejected')}>{t.reject}</button>
                     {!isClosed(action.status) && (
-                      <button type="button" className="compact" disabled={updatingId === action.id} onClick={() => onManualStatusChange(action, 'Completed')}>Done</button>
+                      <button type="button" className="compact" disabled={updatingId === action.id} onClick={() => onManualStatusChange(action, 'Completed')}>{t.done}</button>
                     )}
                     <button
                       type="button"
                       className="ghost compact"
                       onClick={() => setExpandedTimelines((current) => ({ ...current, [action.id]: !Boolean(current[action.id]) }))}
                     >
-                      {isExpanded ? 'Hide' : 'Timeline'}
+                      {t.timeline}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost compact"
+                      onClick={() => onAISnapshot(action)}
+                      disabled={Boolean(aiSnapshotLoadingById[action.id])}
+                    >
+                      {aiSnapshotLoadingById[action.id] ? 'AI...' : t.aiSnapshot}
                     </button>
                   </div>
 
@@ -976,7 +1566,7 @@ function App() {
       {selectedAction && (
         <section className="mobile-quick-bar" aria-label="Quick workflow actions">
           <button type="button" className="compact" onClick={() => onSubmitForReview(selectedAction)} disabled={selectedAction.status !== 'Draft'}>
-            Submit
+            {t.submit}
           </button>
           <button
             type="button"
@@ -984,7 +1574,7 @@ function App() {
             onClick={() => onDecision(selectedAction, 'Approved')}
             disabled={!canActOnCurrentStep(selectedAction, actingAs, isAdminMode)}
           >
-            Approve
+            {t.approve}
           </button>
           <button
             type="button"
@@ -992,7 +1582,7 @@ function App() {
             onClick={() => onDecision(selectedAction, 'Sent Back')}
             disabled={!canActOnCurrentStep(selectedAction, actingAs, isAdminMode)}
           >
-            Send back
+            {t.sendBack}
           </button>
           <button
             type="button"
@@ -1000,14 +1590,14 @@ function App() {
             onClick={() => onDecision(selectedAction, 'Rejected')}
             disabled={!canActOnCurrentStep(selectedAction, actingAs, isAdminMode)}
           >
-            Reject
+            {t.reject}
           </button>
           <button
             type="button"
             className="ghost compact"
             onClick={() => setExpandedTimelines((current) => ({ ...current, [selectedAction.id]: !Boolean(current[selectedAction.id]) }))}
           >
-            Timeline
+            {t.timeline}
           </button>
         </section>
       )}

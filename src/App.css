@@ -53,10 +53,45 @@
   color: var(--muted);
 }
 
+.itu-brand-text {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--blue-700);
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
 .top-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.language-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.lang-chip {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--blue-900);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.lang-chip.active {
+  background: var(--blue-700);
+  color: #fff;
+  border-color: var(--blue-700);
+}
+
+.translation-import {
+  display: none;
 }
 
 .badge,
@@ -231,6 +266,10 @@
   margin-bottom: 0.55rem;
 }
 
+.ai-draft-btn {
+  margin-bottom: 0.55rem;
+}
+
 .form-grid textarea {
   resize: vertical;
 }
@@ -350,6 +389,14 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 0.5rem;
+}
+
+html[dir='rtl'] .card-top,
+html[dir='rtl'] .top,
+html[dir='rtl'] .context-bar,
+html[dir='rtl'] .workflow-row,
+html[dir='rtl'] .meta-grid span {
+  direction: rtl;
 }
 
 .card-top h4 {
@@ -619,6 +666,11 @@ button:disabled {
     display: inline-flex;
   }
 
+  .ai-draft-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
   .form-collapsed {
     display: none;
   }
@@ -630,6 +682,17 @@ button:disabled {
   .chain-editor select,
   .chain-editor input {
     grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
